@@ -24,10 +24,6 @@ plt.xlabel("Time since start")
 plt.ylabel("Price")
 plt.show()
 
-	
-	
-
-
 '''
 
 
