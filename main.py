@@ -6,7 +6,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.collections import LineCollection
 from matplotlib.colors import ListedColormap, BoundaryNorm
-from twitter import *
+# from twitter import *
+import tweepy
 from credentials import api_key, api_secret_key, access_token, access_token_secret
 
 '''
@@ -193,13 +194,21 @@ def update_graph():
 		# plt.plot(x,y)
 		
 def tweet_update(message):
-	t = Twitter(auth=OAuth(access_token, access_token_secret, api_key, api_secret_key))
-	t.statuses.update(status=message)
+
+	#t = Twitter(auth=OAuth(access_token, access_token_secret, api_key, api_secret_key))
+	#t.statuses.update(status=message)
+
+	auth = tweepy.OAuthHandler(api_key, api_secret_key)
+	auth.set_access_token(access_token, access_token_secret)
+	api = tweepy.API(auth)
+
+	api.update_status(status=message)
 
 def tweet_picture_update(message, name):
-	t = Twitter(auth=OAuth(access_token, access_token_secret, api_key, api_secret_key))
+	'''
+	t = Twitter(auth=OAuth(asccess_token, access_token_secret, api_key, api_secret_key))
 
-	with open("{}Chart.png".format(name), "r") as imagefile:
+	with open("{}Chart.png".format(name), "rb") as imagefile:
 		imagedata = imagefile.read()
 
 	t_upload = Twitter(domain='upload.twitter.com',
@@ -208,6 +217,12 @@ def tweet_picture_update(message, name):
 	id_img = t_upload.media.uploa(media=imagedata)["media_id_string"]
 
 	t.statuses.update(status=message, media_ids=id_img)
+	'''
+	auth = tweepy.OAuthHandler(api_key, api_secret_key)
+	auth.set_access_token(access_token, access_token_secret)
+	api = tweepy.API(auth)
+
+	api.update_with_media("{}Chart.png".format(name), status="Tweeting media via Python library Tweepy", place_id="somewhere in the servers")
 
 
 if __name__ == "__main__":
@@ -255,7 +270,9 @@ if __name__ == "__main__":
 
 	
 	print_data()
-	tweet_picture_update("Test picture tweet: ", "PRTY")
+
+	# tweet_update("Testing new library: tweepy.")
+	# tweet_picture_update("Test picture tweet: ", "PRTY")
 
 	
 
@@ -287,4 +304,4 @@ if __name__ == "__main__":
 
 
 
-	print("success")
+	# print("success")
