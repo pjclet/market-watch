@@ -4,6 +4,7 @@ import json
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
+from datetime import datetime
 from matplotlib.collections import LineCollection
 from matplotlib.colors import ListedColormap, BoundaryNorm
 # from twitter import *
@@ -24,6 +25,12 @@ plt.title("Price Graph for test")
 plt.xlabel("Time since start")
 plt.ylabel("Price")
 plt.show()
+
+- end of the day (4:00 pm est) shut down and print a report
+- add line labels for stop loss and buy price
+- add statistics
+- add feedback, telling the bot that I bought or sold the share
+	- tweepy read all dms
 
 '''
 
@@ -55,7 +62,13 @@ def initialize_data(data, tracking):
 			last_quote = (t.tail(1)['Close'].iloc[0])
 			temp_data["current_price"] = last_quote
 			temp_data["buy_price"] = buy_price
+			temp_data["max_price"] = buy_price
 			temp_data["minute_change"] = 0.0
+
+			# cooldown stuff
+			temp_data["onCooldown"] = 0
+			temp_data["cooldownCount"] = 0
+
 			temp_data["past_prices"] = [temp_data["current_price"]]
 			data[name] = temp_data
 
@@ -108,7 +121,7 @@ def check_name(name):
 def update_data(data):
 	read = json.loads(open("data.json", "r").read())
 	for name in read:
-		print("updating: " + name)
+		print("Updating: " + name)
 
 		temp_ticker = yf.Ticker(name)
 
@@ -119,6 +132,15 @@ def update_data(data):
 		last_quote = (t.tail(1)['Close'].iloc[0])
 		data[name]["current_price"] = last_quote
 
+		data[name]["max_price"] = max(data[name]["past_prices"])
+
+		# cooldown checking
+		if data[name]["onCooldown"] == 1:
+			cooldownCount += 1;
+
+		if data[name]["cooldownCount"] >= 17:
+			data[name]["onCooldown"] = 0
+
 		data[name]["minute_change"] = float((data[name]["current_price"] - read[name]["current_price"]) / read[name]["current_price"])
 		data[name]["past_prices"].append(data[name]["current_price"])
 
@@ -126,14 +148,19 @@ def update_data(data):
 			json.dump(data, outfile, indent = 2)
 		outfile.close()
 
+		print()
+
 
 def print_data():
 	read = json.loads(open("data.json", "r").read())
 	for key , val in read.items():
 		print(key + " -- ")
 		for key2, val2 in val.items():
-			print(key2, " : ", val2)
+			if (key2 != "all"):
+				print(key2, " : ", val2)
 		print("\n")
+	print("[", datetime.now().time(), "]")
+	print("-" * 25)
 
 
 def update_graph():
@@ -147,9 +174,9 @@ def update_graph():
 		x = np.array(list(range(0,len(y))))
 		dydx = [100 * (x - z) for x,z in zip(y[:-1], y[1:])]
 
-		print(x)
-		print(y)
-		print(dydx)
+		#print(x)
+		#print(y)
+		#print(dydx)
 
 		upper = y[0] + (0.005 * y[0])
 		lower = y[0] - (0.005 * y[0])
@@ -159,11 +186,13 @@ def update_graph():
 		yMiddle = np.ma.masked_where((y < lower) | (y > upper), y)
 
 		fig,ax = plt.subplots()
+
 		ax.plot(x, yMiddle, color="b")
 		ax.plot(x, yUpper, color="g")
 		ax.plot(x, yLower, color="r")
 
 		plt.axhline(y=read[name]["buy_price"], color ="violet", linestyle="--")
+		plt.axhline(y=(read[name]["max_price"] * 0.85), color ="crimson", linestyle="dotted")
 
 		plt.draw()
 		plt.title("Price Graph for {}".format(name))
@@ -171,6 +200,7 @@ def update_graph():
 		plt.ylabel("Price")
 		plt.savefig("{}Chart.png".format(name))
 		plt.clf()
+		plt.close()
 
 		'''
 		points = np.array([x,y]).T.reshape(-1,1,2)
@@ -187,12 +217,26 @@ def update_graph():
 		#fig.colorbar(line, ax=axs[0])
 		# print(x)
 
-
-
-
-
 		# plt.plot(x,y)
+
+# -------------------------------- algo trading stuff -----------------------------------------
+
+def analyze_data():
+	read = json.loads(open("data.json", "r").read())
+	for name in read:
+		trailing_stop_loss(name)
 		
+		
+def trailing_stop_loss(name): # need a listening stream, telling the bot to stop tracking this
+	read = json.loads(open("data.json", "r").read())
+
+	if (read[name]["max_price"] * 0.85 > read[name]["current_price"] and read[name]["onCooldown"] == 0):
+		message = "[ SELL TRIGGER ]\n Ticker: {} Reason: Down more than 15%".format(name)
+		tweet_picture_update(message, name)
+
+
+# -------------------------------- twitter stuff -----------------------------------------
+
 def tweet_update(message):
 
 	#t = Twitter(auth=OAuth(access_token, access_token_secret, api_key, api_secret_key))
@@ -225,12 +269,15 @@ def tweet_picture_update(message, name):
 	api.update_with_media("{}Chart.png".format(name), status="Tweeting media via Python library Tweepy", place_id="somewhere in the servers")
 
 
+
+
 if __name__ == "__main__":
 
 	print("Enter the stocks you would like to track today: ")
 
 	tracking = []
 	use_last = False
+	use_stored = False
 
 	# all new inputs
 	while True:
@@ -240,6 +287,9 @@ if __name__ == "__main__":
 		if inp == "USE LAST" or inp == "CONTINUE" or inp == "C":
 			use_last = True
 			break
+		elif inp == "S" or inp == "SAVED":
+			use_stored = True
+			break
 		else:
 			print("Buy price: ")
 			inp2 = input().upper()
@@ -247,15 +297,23 @@ if __name__ == "__main__":
 			tracking.append(temp)
 
 	data = {}
-	if not use_last:
-		initialize_data(data, tracking)
-	else:
+	if use_last:
 		print("using last now")
 		data = json.loads(open("data.json", "r").read())
+	elif use_stored:
+		print("using stored now")
+		read = json.loads(open("current_stocks.json", "r").read())
+		for name in read:
+			temp = (name, read[name])
+			tracking.append(temp)
+		initialize_data(data, tracking)
+	else:
+		initialize_data(data, tracking)
 
 	#json_test = json.dumps(data, indent = 2)
 	#print(json_test)
 
+	# ?
 	with open("data.json", "w") as outfile:
 		json.dump(data, outfile, indent = 2)
 
@@ -273,7 +331,6 @@ if __name__ == "__main__":
 
 	# tweet_update("Testing new library: tweepy.")
 	# tweet_picture_update("Test picture tweet: ", "PRTY")
-
 	
 
 
